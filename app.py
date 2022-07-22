@@ -77,8 +77,8 @@ MAX_LINES = 400
 
 color_mapping = {
     "P": "#ccd5ae",
-    "N": "#d4a373",
-    "O": "#edede9",
+    "N": "#ffdcdc",
+    # "O": "#edede9",
 }
 
 with jsonlines.open(option, "r") as file:
@@ -104,6 +104,9 @@ with jsonlines.open(option, "r") as file:
             new_tags.append("O")
 
         highlights = list(zip(new_tokens, new_tags))
-        parts = [(token + " ", tag, color_mapping[tag]) for token, tag in highlights]
+        parts = [
+            (token + " ", tag, color_mapping[tag]) if tag != "O" else (token)
+            for token, tag in highlights
+        ]
         annotated_text(*parts)
         st.markdown("------", unsafe_allow_html=False)
