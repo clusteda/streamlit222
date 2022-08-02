@@ -1,112 +1,49 @@
 import glob
-import jsonlines
+import json
+import pandas as pd
 import streamlit as st
 
+from models import Item
+from models import Sentiment
+from random import shuffle
+from style import get_html_items
 
-from typing import Optional, Tuple, List, Set
+brands_names = []
+for filename in glob.glob("data/*.json"):
+    brand_name = filename.rsplit("/", 1)[-1].split(".")[0]
+    brands_names.append(brand_name)
 
-from annotated_text import annotated_text
+brands = st.multiselect('Брэнды', brands_names, "SHEIN")
 
+data = []
+clusters = json.load(open(f"data/{brands[0]}.json", "r"))["clusters"]
+for cluster in clusters:
+    for review in cluster["reviews"]:
+        data.append([cluster["name"], review["text"], review["score"], review["highlight"], review["sentiment"]])
 
-def _iob1_start_of_chunk(
-    prev_bio_tag: Optional[str],
-    prev_conll_tag: Optional[str],
-    curr_bio_tag: str,
-    curr_conll_tag: str,
-) -> bool:
-    if curr_bio_tag == "B":
-        return True
-    if curr_bio_tag == "I" and prev_bio_tag == "O":
-        return True
-    if curr_bio_tag != "O" and prev_conll_tag != curr_conll_tag:
-        return True
-    return False
-
-
-def iob1_tags_to_spans(
-    tag_sequence: List[str], classes_to_ignore: List[str] = None
-) -> List[str]:
-    classes_to_ignore = classes_to_ignore or []
-    spans: Set[Tuple[str, Tuple[int, int]]] = set()
-    span_start = 0
-    span_end = 0
-    active_conll_tag = None
-    prev_bio_tag = None
-    prev_conll_tag = None
-    for index, string_tag in enumerate(tag_sequence):
-        curr_bio_tag = string_tag[0]
-        curr_conll_tag = string_tag[2:]
-
-        if curr_bio_tag not in ["B", "I", "O"]:
-            raise ValueError("Invalid tag sequence")
-        if curr_bio_tag == "O" or curr_conll_tag in classes_to_ignore:
-            # The span has ended.
-            if active_conll_tag is not None:
-                spans.add((active_conll_tag, (span_start, span_end)))
-            active_conll_tag = None
-        elif _iob1_start_of_chunk(
-            prev_bio_tag, prev_conll_tag, curr_bio_tag, curr_conll_tag
-        ):
-            # We are entering a new span; reset indices
-            # and active tag to new span.
-            if active_conll_tag is not None:
-                spans.add((active_conll_tag, (span_start, span_end)))
-            active_conll_tag = curr_conll_tag
-            span_start = index
-            span_end = index
-        else:
-            # bio_tag == "I" and curr_conll_tag == active_conll_tag
-            # We're continuing a span.
-            span_end += 1
-
-        prev_bio_tag = string_tag[0]
-        prev_conll_tag = string_tag[2:]
-    # Last token might have been a part of a valid span.
-    if active_conll_tag is not None:
-        spans.add((active_conll_tag, (span_start, span_end)))
-    return list(spans)
+df = pd.DataFrame(columns=["cluster", "text", "score", "highlight", "sentiment"], data=data)
+categories = df["cluster"].unique()
+clusters = st.multiselect("Категории хайлайтов", categories, default=categories)
 
 
-datasets = glob.glob("data/test-002-predictions.jsonl", recursive=True)
+def get_top_k_by_sentiment(sentiment: Sentiment, k: int):
+    df_copy = df.copy()
+    df_copy = df_copy[
+        (df_copy["sentiment"] == sentiment) &
+        (df_copy["cluster"].isin(clusters))
+    ]
+    max_score = df_copy["score"].max()
+    for _, ids in df_copy.groupby("cluster").groups.items():
+        for _, _, score, highlight, sentiment in df_copy.loc[ids].values[:k]:
+            yield Item(highlight, score / max_score / 2, sentiment)
 
-option = st.selectbox("Choose dataset to overview", datasets)
 
-st.markdown("------", unsafe_allow_html=False)
+positive_highlights = list(get_top_k_by_sentiment(sentiment="positive", k=4))
+negative_highlights = list(get_top_k_by_sentiment(sentiment="negative", k=2))
 
-MAX_LINES = 400
+highlights = positive_highlights + negative_highlights
+shuffle(highlights)
 
-color_mapping = {
-    "P": "#ccd5ae",
-    "N": "#ffdcdc",
-    # "O": "#edede9",
-}
+st.markdown("#### Хайлайты")
 
-with jsonlines.open(option, "r") as file:
-    for i, line in enumerate(file):
-        if i < 10:
-            continue
-        if i > MAX_LINES:
-            break
-        new_tokens = []
-        new_tags = []
-        indices = iob1_tags_to_spans(line["tags"])
-        indices = sorted(indices, key=lambda x: x[1][0])
-        prev = 0
-        for tag, (start, stop) in indices:
-            if prev != start:
-                new_tokens.append(" ".join(line["initial tokens"][prev:start]))
-                new_tags.append("O")
-            new_tokens.append(" ".join(line["initial tokens"][start : stop + 1]))
-            new_tags.append(tag)
-            prev = stop + 1
-        if prev != len(line["initial tokens"]):
-            new_tokens.append(" ".join(line["initial tokens"][prev:]))
-            new_tags.append("O")
-
-        highlights = list(zip(new_tokens, new_tags))
-        parts = [
-            (token + " ", tag, color_mapping[tag]) if tag != "O" else (token)
-            for token, tag in highlights
-        ]
-        annotated_text(*parts)
-        st.markdown("------", unsafe_allow_html=False)
+st.markdown(get_html_items(highlights), unsafe_allow_html=True)
