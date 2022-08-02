@@ -16,10 +16,11 @@ for filename in glob.glob("data/*.json"):
 brands = st.multiselect('Брэнды', brands_names, "SHEIN")
 
 data = []
-clusters = json.load(open(f"data/{brands[0]}.json", "r"))["clusters"]
-for cluster in clusters:
-    for review in cluster["reviews"]:
-        data.append([cluster["name"], review["text"], review["score"], review["highlight"], review["sentiment"]])
+for brand in brands:
+    clusters = json.load(open(f"data/{brand}.json", "r"))["clusters"]
+    for cluster in clusters:
+        for review in cluster["reviews"]:
+            data.append([cluster["name"], review["text"], review["score"], review["highlight"], review["sentiment"]])
 
 df = pd.DataFrame(columns=["cluster", "text", "score", "highlight", "sentiment"], data=data)
 categories = df["cluster"].unique()
