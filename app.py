@@ -86,6 +86,7 @@ def get_top_k_by_sentiment(sentiment: Sentiment, k: int):
             parts = [(token + " ", tag, color_mapping[tag]) if tag != "O" else (token) for token, tag in highlights]
             annotated_text(*parts)
             st.markdown("")
+            st.markdown("")
 
 
 get_top_k_by_sentiment("positive", 4)
